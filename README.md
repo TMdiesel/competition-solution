@@ -1,4 +1,4 @@
-# kaggle-past-comp
+# competition-solution
 
 Kaggle の過去コンペの勉強用です。
 
