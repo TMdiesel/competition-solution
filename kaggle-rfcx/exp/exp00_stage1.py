@@ -3,11 +3,13 @@ import logging
 import pathlib
 import sys
 import os
+import typing as t
 
 # third party package
 import numpy as np
 import pandas as pd
 import torch
+import pytorch_lightning as pl
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
@@ -54,6 +56,11 @@ class CFG:
     debug = False
     log_dir = "./kaggle-rfcx/logs"
 
+    seed = 46
+
+    # data
+    use_train_data = "tp"
+
 
 # =================================================
 # Utils
@@ -79,11 +86,43 @@ def _add_handler(outdir: pathlib.Path, level, filename):
     return fh
 
 
-def main():
+# =================================================
+# Load data
+# =================================================
+def load_train_metadata(config: CFG) -> t.Tuple[pd.DataFrame, pathlib.Path]:
+    train_audio_path = INPUT_DIR / "train"
+
+    train_tp = pd.read_csv(INPUT_DIR / "train_tp.csv").reset_index(drop=True)
+    train_fp = pd.read_csv(INPUT_DIR / "train_fp.csv").reset_index(drop=True)
+    train_tp["data_type"] = "tp"
+    train_fp["data_type"] = "fp"
+    train = pd.concat([train_tp, train_fp])
+
+    df_meta = train[train["data_type"].isin(config.use_train_data)].reset_index(
+        drop=True
+    )
+
+    return df_meta, train_audio_path
+
+
+def load_test_metadata(config: dict) -> t.Tuple[pd.DataFrame, pathlib.Path]:
+    df_sub = pd.read_csv(INPUT_DIR / "sample_submission.csv").reset_index(drop=True)
+    test_audio_path = INPUT_DIR / "test"
+
+    return df_sub, test_audio_path
+
+
+def main() -> None:
+    # setting
     init_root_logger(pathlib.Path(CFG.log_dir))
     _logger.setLevel(logging.INFO)
-
     _logger.info(ENV)
+
+    pl.seed_everything(CFG.seed)
+
+    # load data
+    df_meta, train_audio_path = load_train_metadata(CFG)
+    df_sub, test_audio_path = load_test_metadata(CFG)
 
 
 if __name__ == "__main__":
