@@ -13,6 +13,10 @@ ipython = "^7.29.0"
 mypy = "^0.910"
 flake8 = "^4.0.1"
 black = "^21.10b0"
+python-dotenv = "^0.19.1"
+torch = "^1.10.0"
+pytorch-lightning = "^1.5.0"
+tqdm = "^4.62.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
