@@ -45,8 +45,8 @@ def load_env(label: str):
 
 
 WANDB_API = load_env("WANDB_API")
-OUTPUT_DIR = load_env("OUTPUT_DIR")
-INPUT_DIR = load_env("INPUT_DIR")
+OUTPUT_DIR = pathlib.Path(load_env("OUTPUT_DIR"))
+INPUT_DIR = pathlib.Path(load_env("INPUT_DIR"))
 
 
 # =================================================
@@ -54,12 +54,12 @@ INPUT_DIR = load_env("INPUT_DIR")
 # =================================================
 class CFG:
     debug = False
-    log_dir = "./kaggle-rfcx/logs"
+    log_dir = "./logs"
 
     seed = 46
 
     # data
-    use_train_data = "tp"
+    use_train_data = ["tp"]
 
 
 # =================================================
