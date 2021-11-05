@@ -8,7 +8,11 @@ import typing as t
 # third party package
 import numpy as np
 import pandas as pd
+import soundfile as sf
+import librosa
 import torch
+import torch.utils.data as data
+from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from sklearn.model_selection import StratifiedKFold
 
@@ -126,6 +130,175 @@ def load_test_metadata(config: dict) -> t.Tuple[pd.DataFrame, pathlib.Path]:
 # =================================================
 # Torch data
 # =================================================
+class SpectrogramDataset(data.Dataset):
+    TOTAL_TIME = 60
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        audio_dir: pathlib.Path,
+        phase: str,
+        period: int,
+    ):
+        assert phase in ["train", "val", "test"], "phase must be train, val, or test"
+
+        self.df = df
+        self.audio_dir = audio_dir
+        self.phase = phase
+        self.period = period
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        """get item.
+
+        Parameters
+        ----------
+        idx : int
+
+        Returns
+        -------
+        image: np.ndarray
+        label: int
+
+        Notes
+        ------
+        - audioを60sに調整
+        """
+        sample = self.df.iloc[idx]
+        audio_path = self.audio_dir / f"{sample['recording_id']}.flac"
+        y, sr = sf.read(audio_path)
+
+        effective_length = sr * self.period
+        y = adjust_audio_length(y, sr, self.TOTAL_TIME)
+
+        if self.phase == "train":
+            y, labels = strong_clip_audio(
+                self.df, y, sr, idx, effective_length, train_pseudo
+            )
+            image = wave2image_normal(
+                y, sr, self.width, self.height, self.melspectrogram_parameters
+            )
+            return image, labels
+        else:
+            return y
+            if self.phase == "val":
+                pass
+            elif self.pahse == "train":
+                pass
+
+
+def adjust_audio_length(y, sr, total_time=60):
+    """データの長さを全てtotal_time分にする."""
+    try:
+        assert len(y) == total_time * sr
+    except Exception as e:
+        _logger.info("Assert Error")
+        len_y = len(y)
+        total_length = total_time * sr
+        if len_y < total_length:
+            new_y = np.zeros(total_length, dtype=y.dtype)
+            start = np.random.randint(total_length - len_y)
+            new_y[start : start + len_y] = y
+            y = new_y.astype(np.float32)
+        elif len_y > total_length:
+            start = np.random.randint(len_y - total_length)
+            y = y[start : start + total_length].astype(np.float32)
+        else:
+            y = y.astype(np.float32)
+    return y
+
+
+def wave2image_normal(y, sr, width, height, melspectrogram_parameters):
+    """
+    通常のmelspectrogram変換
+    """
+    melspec = librosa.feature.melspectrogram(y, sr=sr, **melspectrogram_parameters)
+    melspec = librosa.power_to_db(melspec).astype(np.float32)
+
+    image = mono_to_color(melspec)
+    image = cv2.resize(image, (width, height))
+    image = np.moveaxis(image, 2, 0)
+    image = (image / 255.0).astype(np.float32)
+    return image
+
+
+def strong_clip_audio(df, y, sr, idx, effective_length, pseudo_df):
+
+    t_min = df.t_min.values[idx] * sr
+    t_max = df.t_max.values[idx] * sr
+
+    # Positioning sound slice
+    t_center = np.round((t_min + t_max) / 2)
+
+    # 開始点の仮決定
+    beginning = t_center - effective_length / 2
+    # overしたらaudioの最初からとする
+    if beginning < 0:
+        beginning = 0
+    beginning = np.random.randint(beginning, t_center)
+
+    # 開始点と終了点の決定
+    ending = beginning + effective_length
+    # overしたらaudioの最後までとする
+    if ending > len(y):
+        ending = len(y)
+    beginning = ending - effective_length
+
+    y = y[beginning:ending].astype(np.float32)
+    # assert len(y)==effective_length, f"not much audio length in {idx}. The length of y is {len(y)} not {effective_length}."
+
+    # TODO 以下アライさんが追加した部分
+    # https://www.kaggle.com/c/rfcx-species-audio-detection/discussion/200922#1102470
+
+    # flame→time変換
+    beginning_time = beginning / sr
+    ending_time = ending / sr
+
+    # dfには同じrecording_idだけどclipしたt内に別のラベルがあるものもある
+    # そこでそれには正しいidを付けたい
+    recording_id = df.loc[idx, "recording_id"]
+    try:  # tp data
+        main_species_id = df.loc[idx, "species_id"]
+    except:  # fp data
+        main_species_id = None
+
+    query_string = f"recording_id == '{recording_id}' & "
+    query_string += f"t_min < {ending_time} & t_max > {beginning_time}"
+
+    # 同じrecording_idのものを
+    all_tp_events = df.query(query_string)
+
+    labels = np.zeros(len(df["species_id"].unique()), dtype=np.float32)
+    for species_id in all_tp_events["species_id"].unique():
+        if species_id == main_species_id:
+            labels[int(species_id)] = 1.0  # main label
+        else:
+            labels[int(species_id)] = 1.0  # secondaly label
+
+    labels = add_pseudo_label(
+        labels, recording_id, pseudo_df, beginning_time, ending_time
+    )
+    return y, labels
+
+
+class SpectrogramDataModule(pl.LightningDataModule):
+    def __init__(self):
+        pass
+
+    def setup(self, stage: t.Optional[str] = None):
+        pass
+
+    def train_dataloader(self):
+        pass
+
+    def val_dataloader(self):
+        pass
+
+    def test_dataloader(self):
+        pass
+
 
 # =================================================
 # Network
@@ -151,8 +324,9 @@ def main() -> None:
     df_sub, test_audio_path = load_test_metadata(CFG)
 
     # cv
+    skf = StratifiedKFold(CFG.n_split)
     for fold, (idx_train, idx_val) in enumerate(
-        StratifiedKFold(df_meta, df_meta["species_id"])
+        skf.split(df_meta, df_meta["species_id"])
     ):
         if fold not in CFG.folds:
             continue
@@ -160,6 +334,10 @@ def main() -> None:
         # data
         df_train = df_meta.loc[idx_train].reset_index(drop=True)
         df_val = df_meta.loc[idx_val].reset_index(drop=True)
+
+        # train
+
+        # inference
 
 
 if __name__ == "__main__":

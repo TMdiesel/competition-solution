@@ -15,3 +15,5 @@
 - pseudo label を用いて半教師あり学習をする
 
 ## 参考
+
+- [kuto5046/kaggle-rainforest](https://github.com/kuto5046/kaggle-rainforest)
