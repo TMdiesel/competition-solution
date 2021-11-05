@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 import pytorch_lightning as pl
+from sklearn.model_selection import StratifiedKFold
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
@@ -60,6 +61,12 @@ class CFG:
 
     # data
     use_train_data = ["tp"]
+
+    # split
+    n_split = 5
+    random_state = 42
+    shuffle = True
+    folds = [1]
 
 
 # =================================================
@@ -112,6 +119,25 @@ def load_test_metadata(config: dict) -> t.Tuple[pd.DataFrame, pathlib.Path]:
     return df_sub, test_audio_path
 
 
+# =================================================
+# Date process
+# =================================================
+
+# =================================================
+# Torch data
+# =================================================
+
+# =================================================
+# Network
+# =================================================
+# =================================================
+# Trainer
+# =================================================
+
+
+# =================================================
+# Main
+# =================================================
 def main() -> None:
     # setting
     init_root_logger(pathlib.Path(CFG.log_dir))
@@ -123,6 +149,17 @@ def main() -> None:
     # load data
     df_meta, train_audio_path = load_train_metadata(CFG)
     df_sub, test_audio_path = load_test_metadata(CFG)
+
+    # cv
+    for fold, (idx_train, idx_val) in enumerate(
+        StratifiedKFold(df_meta, df_meta["species_id"])
+    ):
+        if fold not in CFG.folds:
+            continue
+
+        # data
+        df_train = df_meta.loc[idx_train].reset_index(drop=True)
+        df_val = df_meta.loc[idx_val].reset_index(drop=True)
 
 
 if __name__ == "__main__":
