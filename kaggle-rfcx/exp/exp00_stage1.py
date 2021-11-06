@@ -79,7 +79,17 @@ class CFG:
     period = 10
     shift_time = 10
     strong_label_prob = 1.0
-    melspec = {"n_fft": 2048, "n_mels": 128, "fmin": 80, "fmax": 15000, "power": 2.0}
+    params_melspec = {
+        "n_fft": 2048,
+        "n_mels": 128,
+        "fmin": 80,
+        "fmax": 15000,
+        "power": 2.0,
+    }
+
+    # datamodule
+    batch_size: int = 8
+    num_workers: int = 2
 
 
 # =================================================
@@ -133,7 +143,7 @@ def load_test_metadata(config: dict) -> t.Tuple[pd.DataFrame, pathlib.Path]:
 
 
 # =================================================
-# Date process
+# Data process
 # =================================================
 
 # =================================================
@@ -343,7 +353,7 @@ def strong_clip_audio(
         if species_id == main_species_id:
             labels[int(species_id)] = 1.0  # main label
         else:
-            labels[int(species_id)] = 1.0  # secondaly label
+            labels[int(species_id)] = 1.0  # secondary label
 
     return y, labels
 
@@ -352,20 +362,79 @@ def strong_clip_audio(
 # Torch datamodule
 # =================================================
 class SpectrogramDataModule(pl.LightningDataModule):
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        df_train: pd.DataFrame,
+        df_val: pd.DataFrame,
+        df_sub: pd.DataFrame,
+        train_audio_dir: pathlib.Path,
+        test_audio_dir: pathlib.Path,
+    ):
+        self.df_train = df_train
+        self.df_val = df_val
+        self.df_sub = df_sub
+        self.train_audio_dir = train_audio_dir
+        self.test_audio_dir = test_audio_dir
 
     def setup(self, stage: t.Optional[str] = None):
-        pass
+        assert stage in ["fit", "test", None], "stage must be fit or test"
+
+        if stage == "fit" or stage is None:
+            self.dataset_train = SpectrogramDataset(
+                self.df_train,
+                self.train_audio_dir,
+                "train",
+                CFG.period,
+                CFG.height,
+                CFG.width,
+                CFG.shift_time,
+                CFG.params_melspec,
+            )
+            self.dataset_val = SpectrogramDataset(
+                self.df_val,
+                self.train_audio_dir,
+                "val",
+                CFG.period,
+                CFG.height,
+                CFG.width,
+                CFG.shift_time,
+                CFG.params_melspec,
+            )
+        if stage == "test" or stage is None:
+            self.dataset_test = SpectrogramDataset(
+                self.df_sub,
+                self.test_audio_dir,
+                "test",
+                CFG.period,
+                CFG.height,
+                CFG.width,
+                CFG.shift_time,
+                CFG.params_melspec,
+            )
 
     def train_dataloader(self):
-        pass
+        return data.DataLoader(
+            self.dataset_train,
+            shuffle=True,
+            batch_size=CFG.batch_size,
+            num_workers=CFG.num_workers,
+        )
 
     def val_dataloader(self):
-        pass
+        return data.DataLoader(
+            self.dataset_val,
+            shuffle=False,
+            batch_size=CFG.batch_size,
+            num_workers=CFG.num_workers,
+        )
 
     def test_dataloader(self):
-        pass
+        return data.DataLoader(
+            self.dataset_test,
+            shuffle=False,
+            batch_size=CFG.batch_size,
+            num_workers=CFG.num_workers,
+        )
 
 
 # =================================================
@@ -388,8 +457,8 @@ def main() -> None:
     pl.seed_everything(CFG.seed)
 
     # load data
-    df_meta, train_audio_path = load_train_metadata(CFG)
-    df_sub, test_audio_path = load_test_metadata(CFG)
+    df_meta, train_audio_dir = load_train_metadata(CFG)
+    df_sub, test_audio_dir = load_test_metadata(CFG)
 
     # cv
     skf = StratifiedKFold(CFG.n_split)
