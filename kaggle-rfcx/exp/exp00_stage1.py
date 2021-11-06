@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import librosa
+import cv2
 import torch
 import torch.utils.data as data
 from torch.utils.data import DataLoader
@@ -72,6 +73,14 @@ class CFG:
     shuffle = True
     folds = [1]
 
+    # dataset
+    height = 224
+    width = 400
+    period = 10
+    shift_time = 10
+    strong_label_prob = 1.0
+    melspec = {"n_fft": 2048, "n_mels": 128, "fmin": 80, "fmax": 15000, "power": 2.0}
+
 
 # =================================================
 # Utils
@@ -128,7 +137,7 @@ def load_test_metadata(config: dict) -> t.Tuple[pd.DataFrame, pathlib.Path]:
 # =================================================
 
 # =================================================
-# Torch data
+# Torch dataset
 # =================================================
 class SpectrogramDataset(data.Dataset):
     TOTAL_TIME = 60
@@ -139,6 +148,10 @@ class SpectrogramDataset(data.Dataset):
         audio_dir: pathlib.Path,
         phase: str,
         period: int,
+        height: int,
+        width: int,
+        shift_time: float,
+        params_melspec: dict,
     ):
         assert phase in ["train", "val", "test"], "phase must be train, val, or test"
 
@@ -146,6 +159,11 @@ class SpectrogramDataset(data.Dataset):
         self.audio_dir = audio_dir
         self.phase = phase
         self.period = period
+        self.height = height
+        self.width = width
+        self.train_pseudo = None
+        self.shift_time = shift_time
+        self.params_melspec = params_melspec
 
     def __len__(self):
         return len(self.df)
@@ -175,21 +193,53 @@ class SpectrogramDataset(data.Dataset):
 
         if self.phase == "train":
             y, labels = strong_clip_audio(
-                self.df, y, sr, idx, effective_length, train_pseudo
+                self.df, y, sr, idx, effective_length, self.train_pseudo
             )
             image = wave2image_normal(
-                y, sr, self.width, self.height, self.melspectrogram_parameters
+                y, sr, self.width, self.height, self.params_melspec
             )
             return image, labels
         else:
-            return y
+            # PERIOD単位に6分割
+            split_y = split_audio(y, self.TOTAL_TIME, self.period, self.shift_time, sr)
+
+            images = []
+            # 分割した音声を一つずつ画像化してリストで返す
+            for y in split_y:
+                image = wave2image_normal(
+                    y, sr, self.width, self.height, self.params_melspec
+                )
+                images.append(image)
+
             if self.phase == "val":
-                pass
-            elif self.pahse == "train":
-                pass
+                recording_id = sample["recording_id"]
+                query_string = f"recording_id == '{recording_id}'"
+                all_tp_events = self.df.query(query_string)
+                labels = np.zeros(len(self.df["species_id"].unique()), dtype=np.float32)
+                for species_id in all_tp_events["species_id"].unique():
+                    labels[int(species_id)] = 1.0
+                return np.asarray(images), labels
+
+            elif self.phase == "test":
+                labels = -1
+                return np.asarray(images), labels
 
 
-def adjust_audio_length(y, sr, total_time=60):
+def split_audio(y, total_time, period, shift_time, sr):
+    # PERIOD単位に分割
+    num_data = int(total_time / shift_time)
+    shift_length = sr * shift_time
+    effective_length = sr * period
+    split_y = []
+    for i in range(num_data):
+        start = shift_length * i
+        finish = start + effective_length
+        split_y.append(y[start:finish])
+
+    return split_y
+
+
+def adjust_audio_length(y: np.ndarray, sr: int, total_time: int = 60) -> np.ndarray:
     """データの長さを全てtotal_time分にする."""
     try:
         assert len(y) == total_time * sr
@@ -210,10 +260,10 @@ def adjust_audio_length(y, sr, total_time=60):
     return y
 
 
-def wave2image_normal(y, sr, width, height, melspectrogram_parameters):
-    """
-    通常のmelspectrogram変換
-    """
+def wave2image_normal(
+    y: np.ndarray, sr: int, width: int, height: int, melspectrogram_parameters: dict
+) -> np.ndarray:
+    """通常のmelspectrogram変換."""
     melspec = librosa.feature.melspectrogram(y, sr=sr, **melspectrogram_parameters)
     melspec = librosa.power_to_db(melspec).astype(np.float32)
 
@@ -224,33 +274,51 @@ def wave2image_normal(y, sr, width, height, melspectrogram_parameters):
     return image
 
 
-def strong_clip_audio(df, y, sr, idx, effective_length, pseudo_df):
+def mono_to_color(
+    X: np.ndarray, mean=None, std=None, norm_max=None, norm_min=None, eps=1e-6
+) -> np.ndarray:
+    X = np.stack([X, X, X], axis=-1)
 
-    t_min = df.t_min.values[idx] * sr
-    t_max = df.t_max.values[idx] * sr
+    # Standardize
+    mean = mean or X.mean()
+    X = X - mean
+    std = std or X.std()
+    Xstd = X / (std + eps)
+    _min, _max = Xstd.min(), Xstd.max()
+    norm_max = norm_max or _max
+    norm_min = norm_min or _min
+    if (_max - _min) > eps:
+        # Normalize to [0, 255]
+        V = Xstd
+        V[V < norm_min] = norm_min
+        V[V > norm_max] = norm_max
+        V = 255 * (V - norm_min) / (norm_max - norm_min)
+        V = V.astype(np.uint8)
+    else:
+        # Just zero
+        V = np.zeros_like(Xstd, dtype=np.uint8)
+    return V
 
-    # Positioning sound slice
+
+def strong_clip_audio(
+    df: pd.DataFrame, y: np.ndarray, sr: int, idx: int, effective_length: int, pseudo_df
+):
+
+    t_min = df["t_min"].values[idx] * sr
+    t_max = df["t_max"].values[idx] * sr
     t_center = np.round((t_min + t_max) / 2)
 
-    # 開始点の仮決定
     beginning = t_center - effective_length / 2
-    # overしたらaudioの最初からとする
     if beginning < 0:
         beginning = 0
     beginning = np.random.randint(beginning, t_center)
 
-    # 開始点と終了点の決定
     ending = beginning + effective_length
-    # overしたらaudioの最後までとする
     if ending > len(y):
         ending = len(y)
     beginning = ending - effective_length
 
     y = y[beginning:ending].astype(np.float32)
-    # assert len(y)==effective_length, f"not much audio length in {idx}. The length of y is {len(y)} not {effective_length}."
-
-    # TODO 以下アライさんが追加した部分
-    # https://www.kaggle.com/c/rfcx-species-audio-detection/discussion/200922#1102470
 
     # flame→time変換
     beginning_time = beginning / sr
@@ -277,12 +345,12 @@ def strong_clip_audio(df, y, sr, idx, effective_length, pseudo_df):
         else:
             labels[int(species_id)] = 1.0  # secondaly label
 
-    labels = add_pseudo_label(
-        labels, recording_id, pseudo_df, beginning_time, ending_time
-    )
     return y, labels
 
 
+# =================================================
+# Torch datamodule
+# =================================================
 class SpectrogramDataModule(pl.LightningDataModule):
     def __init__(self):
         pass
@@ -315,8 +383,8 @@ def main() -> None:
     # setting
     init_root_logger(pathlib.Path(CFG.log_dir))
     _logger.setLevel(logging.INFO)
-    _logger.info(ENV)
 
+    _logger.info(ENV)
     pl.seed_everything(CFG.seed)
 
     # load data
