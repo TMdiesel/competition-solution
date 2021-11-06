@@ -24,6 +24,7 @@ SoundFile = "^0.10.3"
 librosa = "^0.8.1"
 opencv-python = "^4.5.4"
 efficientnet-pytorch = "^0.7.1"
+torchmetrics = "^0.6.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

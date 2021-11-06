@@ -19,7 +19,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from sklearn.model_selection import StratifiedKFold
 from efficientnet_pytorch import EfficientNet
-from pytorch_lightning.metrics import F1
+from torchmetrics import F1
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
@@ -104,6 +104,11 @@ class CFG:
     # model
     output_key: str = "logit"
     learning_rate: float = 1e-2
+    model_params: dict = {
+        "base_model_name": "efficientnet-b2",
+        "pretrained": True,
+        "num_classes": 24,
+    }
 
 
 # =================================================
@@ -458,7 +463,7 @@ class EfficientNetSED(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        model_params = config["model"]["params"]
+        model_params = config.model_params
         if model_params["pretrained"]:
             self.base_model = EfficientNet.from_pretrained(
                 model_params["base_model_name"]
@@ -739,7 +744,7 @@ class Trainer(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.config.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
 
 
 def LWLRAP(preds, labels):
