@@ -14,17 +14,17 @@ import torch.nn as nn
 import torch.utils.data as data
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from torchvision import transforms
 from sklearn.model_selection import StratifiedKFold
 from PIL import Image
-
+from dotenv import load_dotenv
+from torchvision import transforms
+from torchvision.models import resnet18
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
 
-from dotenv import load_dotenv
 
 # my package
 
@@ -91,7 +91,7 @@ class CFG:
     gpus = [0]
 
     # model
-    learning_rate: float = 1e-2
+    learning_rate: float = 1e-3
     model_params: dict = {
         "base_model_name": "efficientnet-b2",
         "pretrained": True,
@@ -262,42 +262,29 @@ class DataModule(pl.LightningDataModule):
 # =================================================
 # Network
 # =================================================
+def create_network():
+    network = resnet18(pretrained=True)
+    network.fc = nn.Linear(in_features=512, out_features=1, bias=True)
+    return network
 
 
 # =================================================
 # Trainer
 # =================================================
 class Trainer(pl.LightningModule):
-    def __init__(self, model: nn.Module, config: CFG):
+    def __init__(self, network: nn.Module, conf: CFG):
         super().__init__()
-        self.config = config
-        self.model = model
-        self.output_key = config.output_key
-        self.criterion = LSEPStableLoss(output_key=self.output_key)
-        self.f1 = F1(num_classes=24)
+        self.conf = conf
+        self.network = network
+        self.criterion = nn.MSELoss()
+
+    def forward(self, x):
+        return self.network(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        p = random.random()
-        do_mixup = True if p < self.config["mixup"]["prob"] else False
-
-        if self.config["mixup"]["flag"] and do_mixup:
-            x, y, y_shuffle, lam = mixup_data(x, y, alpha=self.config["mixup"]["alpha"])
-
-        output = self.model(x)
-        pred = output[self.output_key]
-        if "framewise" in self.output_key:
-            pred, _ = pred.max(dim=1)
-
-        if self.config["mixup"]["flag"] and do_mixup:
-            loss = mixup_criterion(
-                self.criterion, output, y, y_shuffle, lam, phase="train"
-            )
-        else:
-            loss = self.criterion(output, y, phase="train")
-
-        lwlrap = LWLRAP(pred, y)
-        f1_score = self.f1(pred, y)
+        output = self.forward(x)
+        loss = self.criterion(output, y)
 
         self.log(
             "loss/train",
@@ -307,64 +294,23 @@ class Trainer(pl.LightningModule):
             prog_bar=False,
             logger=True,
         )
-        self.log(
-            "LWLRAP/train",
-            lwlrap,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-        )
-        self.log(
-            "F1/train",
-            f1_score,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-        )
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        """
-        Notes
-        -----
-        - batchのxはlist型
-        - xが複数の場合
-        """
-        x_list, y = batch
-        x = x_list.view(
-            -1, x_list.shape[2], x_list.shape[3], x_list.shape[4]
-        )  # batch>1でも可
+        x, y = batch
+        output = self.forward(x)
+        loss = self.criterion(output, y)
 
-        output = self.model(x)
-        loss = self.criterion(output, y, phase="valid")
-        pred = output[self.output_key]
-        if "framewise" in self.output_key:
-            pred, _ = pred.max(dim=1)
-        pred = split2one(pred, y)
-        lwlrap = LWLRAP(pred, y)
-        f1_score = self.f1(pred, y)
         self.log(
-            "loss/val", loss, on_step=False, on_epoch=True, prog_bar=False, logger=True
-        )
-        self.log(
-            "LWLRAP/val",
-            lwlrap,
+            "loss/val",
+            loss,
             on_step=False,
             on_epoch=True,
             prog_bar=False,
             logger=True,
         )
-        self.log(
-            "F1/val",
-            f1_score,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-        )
+
         return loss
 
     def configure_optimizers(self):
