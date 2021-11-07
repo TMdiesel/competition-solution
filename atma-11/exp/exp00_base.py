@@ -188,7 +188,7 @@ class Dataset(data.Dataset):
         img = self.transform(img)
 
         label = row["target"]
-        return img, label
+        return img, np.float32(label)
 
 
 # =================================================
@@ -199,13 +199,13 @@ class DataModule(pl.LightningDataModule):
         self,
         df_meta_train: pd.DataFrame,
         df_meta_val: pd.DataFrame,
-        df_meta_sub: pd.DataFrame,
+        df_meta_test: pd.DataFrame,
         dir_photo: pathlib.Path,
         conf: CFG,
     ):
         self.df_meta_train = df_meta_train
         self.df_meta_val = df_meta_val
-        self.df_meta_sub = df_meta_sub
+        self.df_meta_test = df_meta_test
         self.dir_photo = dir_photo
         self.conf = conf
 
@@ -220,7 +220,7 @@ class DataModule(pl.LightningDataModule):
                 conf=self.conf,
             )
             self.dataset_val = Dataset(
-                df_meta=self.df_meta_train,
+                df_meta=self.df_meta_val,
                 dir_photo=self.dir_photo,
                 mode="val",
                 conf=self.conf,
@@ -228,7 +228,7 @@ class DataModule(pl.LightningDataModule):
 
         if stage == "test" or stage is None:
             self.dataset_val = Dataset(
-                df_meta=self.df_meta_train,
+                df_meta=self.df_meta_test,
                 dir_photo=self.dir_photo,
                 mode="test",
                 conf=self.conf,
@@ -314,7 +314,7 @@ class Trainer(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr=self.conf.learning_rate)
 
 
 # =================================================
@@ -340,20 +340,20 @@ def main() -> None:
     # cv
     skf = StratifiedKFold(CFG.n_split)
     for fold, (idx_train, idx_val) in enumerate(
-        skf.split(df_meta, df_meta["species_id"])
+        skf.split(df_meta_train, df_meta_train["target"])
     ):
         if fold not in CFG.folds:
             continue
 
         # data
-        df_train = df_meta.loc[idx_train].reset_index(drop=True)
-        df_val = df_meta.loc[idx_val].reset_index(drop=True)
-        dm = SpectrogramDataModule(
-            df_train=df_train,
-            df_val=df_val,
-            df_sub=df_sub,
-            train_audio_dir=train_audio_dir,
-            test_audio_dir=test_audio_dir,
+        df_train = df_meta_train.loc[idx_train].reset_index(drop=True)
+        df_val = df_meta_train.loc[idx_val].reset_index(drop=True)
+        dm = DataModule(
+            df_meta_train=df_train,
+            df_meta_val=df_val,
+            df_meta_test=df_meta_test,
+            dir_photo=dir_photo,
+            conf=CFG,
         )
 
         # train
@@ -367,10 +367,10 @@ def main() -> None:
             gpus=CFG.gpus,
             fast_dev_run=CFG.fast_dev_run,
             deterministic=False,
-            precision=16,
+            precision=32,
         )
 
-        network = EfficientNetSED(CFG)
+        network = create_network()
         model = Trainer(network, CFG)
         trainer.fit(model, dm)
 
