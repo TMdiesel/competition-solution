@@ -1,11 +1,9 @@
-#%%
 # default package
 import logging
 import pathlib
 import sys
 import os
 import typing as t
-import random
 
 # third party package
 import numpy as np
@@ -13,8 +11,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.utils.data as data
-import torch.nn.functional as F
 import pytorch_lightning as pl
+import wandb
 from sklearn.model_selection import StratifiedKFold
 from PIL import Image
 from dotenv import load_dotenv
@@ -23,14 +21,13 @@ from torchvision.models import resnet18
 from vivid.utils import timer
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import WandbLogger
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
 
-
-# my package
 
 # global variable
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,6 +64,11 @@ INPUT_DIR = pathlib.Path(load_env("INPUT_DIR"))
 class CFG:
     debug = True
     log_dir = "./logs"
+
+    # experiment
+    use_wandb = True
+    project = "atma11"
+    exp_name = "exp00.00"
 
     # pytorch
     seed = 46
@@ -122,6 +124,12 @@ def _add_handler(outdir: pathlib.Path, level, filename):
     )
     fh.setFormatter(fh_formatter)
     return fh
+
+
+def class2dict(f):
+    return dict(
+        (name, getattr(f, name)) for name in dir(f) if not name.startswith("__")
+    )
 
 
 # =================================================
@@ -273,6 +281,7 @@ def create_network():
 class Trainer(pl.LightningModule):
     def __init__(self, network: nn.Module, conf: CFG):
         super().__init__()
+        self.save_hyperparameters()
         self.conf = conf
         self.network = network
         self.criterion = nn.MSELoss()
@@ -291,7 +300,7 @@ class Trainer(pl.LightningModule):
             loss,
             on_step=False,
             on_epoch=True,
-            prog_bar=False,
+            prog_bar=True,
             logger=True,
         )
 
@@ -309,7 +318,7 @@ class Trainer(pl.LightningModule):
             loss,
             on_step=False,
             on_epoch=True,
-            prog_bar=False,
+            prog_bar=True,
             logger=True,
         )
 
@@ -326,11 +335,6 @@ class Trainer(pl.LightningModule):
 
 
 # =================================================
-# Metrics
-# =================================================
-
-
-# =================================================
 # Main
 # =================================================
 def main() -> None:
@@ -338,9 +342,15 @@ def main() -> None:
     init_root_logger(pathlib.Path(CFG.log_dir))
     log_level = logging.DEBUG if CFG.debug else logging.INFO
     _logger.setLevel(log_level)
+    OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
     _logger.info(ENV)
     pl.seed_everything(CFG.seed)
+
+    # experiment
+    pl_logger = None
+    if CFG.use_wandb:
+        wandb.login(WANDB_API)
 
     # load data
     df_meta_train, dir_photo = load_metadata(mode="train")
@@ -355,6 +365,15 @@ def main() -> None:
     ):
         if fold not in CFG.folds:
             continue
+
+        # experiment
+        pl_logger = WandbLogger(
+            project=f"{CFG.project}",
+            group=f"{CFG.exp_name}",
+            name=f"Fold{fold}",
+            save_dir=str(OUTPUT_DIR),
+            config=class2dict(CFG),
+        )
 
         # data
         if CFG.debug:
@@ -371,17 +390,16 @@ def main() -> None:
 
         # callbacks
         callbacks: t.List[t.Any] = []
-        callbacks.append(
-            ModelCheckpoint(
-                dirpath=OUTPUT_DIR,
-                monitor="val_loss",
-                save_last=False,
-                save_top_k=1,
-                save_weights_only=True,
-                mode="min",
-                every_n_epochs=1,
-            )
+        checkpoint = ModelCheckpoint(
+            dirpath=OUTPUT_DIR,
+            monitor="val_loss",
+            save_last=False,
+            save_top_k=1,
+            save_weights_only=True,
+            mode="min",
+            every_n_epochs=1,
         )
+        callbacks.append(checkpoint)
         callbacks.append(
             EarlyStopping(
                 monitor="val_loss",
@@ -393,7 +411,7 @@ def main() -> None:
 
         # train
         trainer = pl.Trainer(
-            logger=None,
+            logger=pl_logger,
             callbacks=callbacks,
             min_epochs=CFG.min_epochs,
             max_epochs=CFG.max_epochs,
@@ -408,16 +426,28 @@ def main() -> None:
         trainer.fit(model, dm)
 
         # inference
+        best_model = model.load_from_checkpoint(
+            checkpoint_path=checkpoint.best_model_path, network=network, conf=CFG
+        )
         # val
-        pred_val = trainer.predict(model, dataloaders=dm.val_dataloader())
+        pred_val = trainer.predict(best_model, dataloaders=dm.val_dataloader())
         pred_val = torch.vstack(pred_val)
         df_oof.loc[idx_val, "pred"] = pred_val.detach().numpy().reshape(-1)
 
         # test
-        pred_test = trainer.predict(model, dataloaders=dm.test_dataloader())
+        pred_test = trainer.predict(best_model, dataloaders=dm.test_dataloader())
         pred_test = torch.vstack(pred_test)
         df_sub.loc[:, "target"] = pred_test.detach().numpy().reshape(-1)
+        df_sub.to_csv(OUTPUT_DIR / f"sub_{fold}.csv", index=False)
+
+    # save
+    df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        _logger.exception(e)
+        if CFG.use_wandb:
+            wandb.finish()
