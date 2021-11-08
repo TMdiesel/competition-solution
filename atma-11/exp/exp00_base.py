@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 from torchvision import transforms
 from torchvision.models import resnet18
 from vivid.utils import timer
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
@@ -86,6 +88,8 @@ class CFG:
     batch_size: int = 8
     num_workers: int = 8
 
+    # callbaks
+
     # trainer
     min_epochs: int = 1
     max_epochs: int = 1 if debug else 100
@@ -94,11 +98,6 @@ class CFG:
 
     # model
     learning_rate: float = 1e-3
-    model_params: dict = {
-        "base_model_name": "efficientnet-b2",
-        "pretrained": True,
-        "num_classes": 24,
-    }
 
 
 # =================================================
@@ -288,7 +287,7 @@ class Trainer(pl.LightningModule):
         loss = self.criterion(output, y)
 
         self.log(
-            "loss/train",
+            "train_loss",
             loss,
             on_step=False,
             on_epoch=True,
@@ -306,7 +305,7 @@ class Trainer(pl.LightningModule):
         loss = loss.view(-1)
 
         self.log(
-            "loss/val",
+            "val_loss",
             loss,
             on_step=False,
             on_epoch=True,
@@ -321,7 +320,9 @@ class Trainer(pl.LightningModule):
         return self.forward(x)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.conf.learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.conf.learning_rate)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+        return [optimizer], [scheduler]
 
 
 # =================================================
@@ -368,9 +369,29 @@ def main() -> None:
             conf=CFG,
         )
 
-        # train
-        callbacks = []
+        # callbacks
+        callbacks: t.List[t.Any] = []
+        callbacks.append(
+            ModelCheckpoint(
+                dirpath=OUTPUT_DIR,
+                monitor="val_loss",
+                save_last=False,
+                save_top_k=1,
+                save_weights_only=True,
+                mode="min",
+                every_n_epochs=1,
+            )
+        )
+        callbacks.append(
+            EarlyStopping(
+                monitor="val_loss",
+                patience=5,
+                min_delta=0,
+                mode="min",
+            )
+        )
 
+        # train
         trainer = pl.Trainer(
             logger=None,
             callbacks=callbacks,
