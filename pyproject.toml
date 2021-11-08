@@ -28,6 +28,7 @@ torchmetrics = "^0.6.0"
 Pillow = "^8.4.0"
 torchvision = "^0.11.1"
 torchinfo = "^1.5.3"
+python-vivid = "^0.3.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

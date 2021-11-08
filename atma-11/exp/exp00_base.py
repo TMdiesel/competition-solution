@@ -1,3 +1,4 @@
+#%%
 # default package
 import logging
 import pathlib
@@ -19,6 +20,7 @@ from PIL import Image
 from dotenv import load_dotenv
 from torchvision import transforms
 from torchvision.models import resnet18
+from vivid.utils import timer
 
 if "ipykernel" in sys.modules:
     from tqdm.notebook import tqdm
@@ -61,7 +63,7 @@ INPUT_DIR = pathlib.Path(load_env("INPUT_DIR"))
 # Config
 # =================================================
 class CFG:
-    debug = False
+    debug = True
     log_dir = "./logs"
 
     # pytorch
@@ -82,11 +84,11 @@ class CFG:
 
     # datamodule
     batch_size: int = 8
-    num_workers: int = 2
+    num_workers: int = 8
 
     # trainer
     min_epochs: int = 1
-    max_epochs: int = 100
+    max_epochs: int = 1 if debug else 100
     fast_dev_run: bool = False
     gpus = [0]
 
@@ -186,8 +188,10 @@ class Dataset(data.Dataset):
         photo_path = self.dir_photo / (row["object_id"] + ".jpg")
         img = Image.open(photo_path)
         img = self.transform(img)
-
-        label = row["target"]
+        if self.mode == "test":
+            label = -1
+        else:
+            label = row["target"]
         return img, np.float32(label)
 
 
@@ -210,29 +214,25 @@ class DataModule(pl.LightningDataModule):
         self.conf = conf
 
     def setup(self, stage: t.Optional[str] = None):
-        assert stage in ["fit", "test", None], "stage must be fit or test"
 
-        if stage == "fit" or stage is None:
-            self.dataset_train = Dataset(
-                df_meta=self.df_meta_train,
-                dir_photo=self.dir_photo,
-                mode="train",
-                conf=self.conf,
-            )
-            self.dataset_val = Dataset(
-                df_meta=self.df_meta_val,
-                dir_photo=self.dir_photo,
-                mode="val",
-                conf=self.conf,
-            )
-
-        if stage == "test" or stage is None:
-            self.dataset_val = Dataset(
-                df_meta=self.df_meta_test,
-                dir_photo=self.dir_photo,
-                mode="test",
-                conf=self.conf,
-            )
+        self.dataset_train = Dataset(
+            df_meta=self.df_meta_train,
+            dir_photo=self.dir_photo,
+            mode="train",
+            conf=self.conf,
+        )
+        self.dataset_val = Dataset(
+            df_meta=self.df_meta_val,
+            dir_photo=self.dir_photo,
+            mode="val",
+            conf=self.conf,
+        )
+        self.dataset_test = Dataset(
+            df_meta=self.df_meta_test,
+            dir_photo=self.dir_photo,
+            mode="test",
+            conf=self.conf,
+        )
 
     def train_dataloader(self):
         return data.DataLoader(
@@ -284,6 +284,7 @@ class Trainer(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         output = self.forward(x)
+        output = output.view(y.shape)
         loss = self.criterion(output, y)
 
         self.log(
@@ -300,7 +301,9 @@ class Trainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         output = self.forward(x)
+        output = output.view(y.shape)
         loss = self.criterion(output, y)
+        loss = loss.view(-1)
 
         self.log(
             "loss/val",
@@ -312,6 +315,10 @@ class Trainer(pl.LightningModule):
         )
 
         return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        x, _ = batch
+        return self.forward(x)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.conf.learning_rate)
@@ -328,7 +335,8 @@ class Trainer(pl.LightningModule):
 def main() -> None:
     # setting
     init_root_logger(pathlib.Path(CFG.log_dir))
-    _logger.setLevel(logging.INFO)
+    log_level = logging.DEBUG if CFG.debug else logging.INFO
+    _logger.setLevel(log_level)
 
     _logger.info(ENV)
     pl.seed_everything(CFG.seed)
@@ -338,6 +346,8 @@ def main() -> None:
     df_meta_test, dir_photo = load_metadata(mode="test")
 
     # cv
+    df_oof = df_meta_train.copy()
+    df_sub = df_meta_test.copy()
     skf = StratifiedKFold(CFG.n_split)
     for fold, (idx_train, idx_val) in enumerate(
         skf.split(df_meta_train, df_meta_train["target"])
@@ -346,6 +356,8 @@ def main() -> None:
             continue
 
         # data
+        if CFG.debug:
+            idx_train = idx_train[:20]
         df_train = df_meta_train.loc[idx_train].reset_index(drop=True)
         df_val = df_meta_train.loc[idx_val].reset_index(drop=True)
         dm = DataModule(
@@ -375,6 +387,15 @@ def main() -> None:
         trainer.fit(model, dm)
 
         # inference
+        # val
+        pred_val = trainer.predict(model, dataloaders=dm.val_dataloader())
+        pred_val = torch.vstack(pred_val)
+        df_oof.loc[idx_val, "pred"] = pred_val.detach().numpy().reshape(-1)
+
+        # test
+        pred_test = trainer.predict(model, dataloaders=dm.test_dataloader())
+        pred_test = torch.vstack(pred_test)
+        df_sub.loc[:, "target"] = pred_test.detach().numpy().reshape(-1)
 
 
 if __name__ == "__main__":
