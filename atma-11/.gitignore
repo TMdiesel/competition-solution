@@ -1,1 +1,3 @@
 *.ckpt
+artifacts/
+wandb/

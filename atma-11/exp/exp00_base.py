@@ -93,8 +93,8 @@ class CFG:
     # callbaks
 
     # trainer
-    min_epochs: int = 1
-    max_epochs: int = 1 if debug else 100
+    min_epochs: int = 2
+    max_epochs: int = 2 if debug else 100
     fast_dev_run: bool = False
     gpus = [0]
 
@@ -350,7 +350,7 @@ def main() -> None:
     # experiment
     pl_logger = None
     if CFG.use_wandb:
-        wandb.login(WANDB_API)
+        wandb.login(key=WANDB_API)
 
     # load data
     df_meta_train, dir_photo = load_metadata(mode="train")
@@ -367,13 +367,15 @@ def main() -> None:
             continue
 
         # experiment
-        pl_logger = WandbLogger(
-            project=f"{CFG.project}",
-            group=f"{CFG.exp_name}",
-            name=f"Fold{fold}",
-            save_dir=str(OUTPUT_DIR),
-            config=class2dict(CFG),
-        )
+        if CFG.use_wandb:
+            pl_logger = WandbLogger(
+                project=f"{CFG.project}",
+                group=f"{CFG.exp_name}",
+                name=f"Fold{fold}",
+                save_dir=str(OUTPUT_DIR),
+                config=class2dict(CFG),
+                log_model=True,
+            )
 
         # data
         if CFG.debug:
@@ -438,7 +440,16 @@ def main() -> None:
         pred_test = trainer.predict(best_model, dataloaders=dm.test_dataloader())
         pred_test = torch.vstack(pred_test)
         df_sub.loc[:, "target"] = pred_test.detach().numpy().reshape(-1)
+
+        # save
         df_sub.to_csv(OUTPUT_DIR / f"sub_{fold}.csv", index=False)
+        if CFG.use_wandb:
+            run = pl_logger.experiment
+            artifact = wandb.Artifact(
+                f"dataset-{pl_logger.experiment.id}", type="dataset"
+            )
+            artifact.add_file(str(OUTPUT_DIR / f"sub_{fold}.csv"))
+            run.log_artifact(artifact)
 
     # save
     df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)
