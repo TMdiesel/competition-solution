@@ -38,6 +38,8 @@ if "KAGGLE_URL_BASE" in set(os.environ.keys()):
     ENV = "KAGGLE"
     USER_SECRETS = UserSecretsClient()
 elif "google.colab" in sys.modules:
+    path = (pathlib.Path(os.path.dirname(__file__))).joinpath("../.env")
+    load_dotenv(path)
     ENV = "COLAB"
 else:
     path = (pathlib.Path(os.path.dirname(__file__))).joinpath("../.env")
