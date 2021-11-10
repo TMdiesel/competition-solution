@@ -464,3 +464,5 @@ if __name__ == "__main__":
         _logger.exception(e)
         if CFG.use_wandb:
             wandb.finish()
+        if ENV in ["kaggle", "colab"]:
+            print(e)
