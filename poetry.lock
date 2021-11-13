@@ -58,6 +58,14 @@ SQLAlchemy = ">=1.3.0"
 tz = ["python-dateutil"]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.8"
+description = "ANTLR 4.8 runtime for Python 3.7"
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
 name = "appdirs"
 version = "1.4.4"
 description = "A small Python module for determining appropriate platform-specific dirs, e.g. a \"user data dir\"."
@@ -536,6 +544,19 @@ six = ">=1.5.2"
 protobuf = ["grpcio-tools (>=1.41.1)"]
 
 [[package]]
+name = "hydra-core"
+version = "1.1.1"
+description = "A framework for elegantly configuring complex applications"
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+antlr4-python3-runtime = "4.8"
+importlib-resources = {version = "*", markers = "python_version < \"3.9\""}
+omegaconf = ">=2.1.0,<2.2.0"
+
+[[package]]
 name = "idna"
 version = "3.3"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -844,6 +865,44 @@ scipy = "*"
 dask = ["dask[array] (>=2.0.0)", "dask[dataframe] (>=2.0.0)", "dask[distributed] (>=2.0.0)", "pandas"]
 
 [[package]]
+name = "lightly"
+version = "1.1.22"
+description = "A deep learning package for self-supervised learning"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+certifi = ">=14.05.14"
+hydra-core = ">=1.0.0"
+lightly-utils = ">=0.0.0,<0.1.0"
+numpy = ">=1.18.1"
+python-dateutil = ">=2.5.3"
+pytorch-lightning = ">=1.0.4"
+requests = ">=2.23.0"
+six = ">=1.10"
+torchvision = "*"
+tqdm = ">=4.44"
+urllib3 = ">=1.15.1"
+
+[package.extras]
+all = ["tox", "sphinx", "pytest", "pytest-forked", "pytest-xdist", "responses", "sphinx-gallery", "sphinx-rtd-theme", "matplotlib", "pre-commit", "opencv-python", "torchvision (>=0.8.0)", "av (>=8.0.2)"]
+dev = ["tox", "sphinx", "pytest", "pytest-forked", "pytest-xdist", "responses", "sphinx-gallery", "sphinx-rtd-theme", "matplotlib", "pre-commit", "opencv-python"]
+video = ["torchvision (>=0.8.0)", "av (>=8.0.2)"]
+
+[[package]]
+name = "lightly-utils"
+version = "0.0.2"
+description = "A utility package for lightly"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+numpy = "*"
+Pillow = "*"
+
+[[package]]
 name = "llvmlite"
 version = "0.34.0"
 description = "lightweight wrapper around basic LLVM functionality"
@@ -1120,6 +1179,18 @@ python-versions = ">=3.6"
 rsa = ["cryptography (>=3.0.0,<4)"]
 signals = ["blinker (>=1.4.0)"]
 signedtoken = ["cryptography (>=3.0.0,<4)", "pyjwt (>=2.0.0,<3)"]
+
+[[package]]
+name = "omegaconf"
+version = "2.1.1"
+description = "A flexible configuration library"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+antlr4-python3-runtime = "4.8"
+PyYAML = ">=5.1.0"
 
 [[package]]
 name = "opencv-python"
@@ -2264,7 +2335,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytes
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.8,<3.11"
-content-hash = "5f37cff0ac216cefd9f08c45cedc6b0756261f84c89ca84d465fc79c54279744"
+content-hash = "ea59896f888c53373ded3d4a22d6ce3a5a2ddf1db061f3d4727e134f1cc6cc0d"
 
 [metadata.files]
 absl-py = [
@@ -2352,6 +2423,9 @@ aiosignal = [
 alembic = [
     {file = "alembic-1.7.4-py3-none-any.whl", hash = "sha256:e3cab9e59778b3b6726bb2da9ced451c6622d558199fd3ef914f3b1e8f4ef704"},
     {file = "alembic-1.7.4.tar.gz", hash = "sha256:9d33f3ff1488c4bfab1e1a6dfebbf085e8a8e1a3e047a43ad29ad1f67f012a1d"},
+]
+antlr4-python3-runtime = [
+    {file = "antlr4-python3-runtime-4.8.tar.gz", hash = "sha256:15793f5d0512a372b4e7d2284058ad32ce7dd27126b105fb0b2245130445db33"},
 ]
 appdirs = [
     {file = "appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128"},
@@ -2745,6 +2819,10 @@ grpcio = [
     {file = "grpcio-1.41.1-cp39-cp39-win_amd64.whl", hash = "sha256:c3a446b6a1f8077cc03d0d496fc1cecdd3d0b66860c0c5b65cc92d0549117840"},
     {file = "grpcio-1.41.1.tar.gz", hash = "sha256:9b751271b029432a526a4970dc9b70d93eb6f0963b6a841b574f780b72651969"},
 ]
+hydra-core = [
+    {file = "hydra-core-1.1.1.tar.gz", hash = "sha256:d396d4d979ff66e2d654b8ef5435ad3b6bbd093c4330f3ed316c339d5d741269"},
+    {file = "hydra_core-1.1.1-py3-none-any.whl", hash = "sha256:928b154d8105db4ee67d768e3cd0f74ca9373121fc99dee54488393b17a31929"},
+]
 idna = [
     {file = "idna-3.3-py3-none-any.whl", hash = "sha256:84d9dd047ffa80596e0f246e2eab0b391788b0503584e8945f2368256d2735ff"},
     {file = "idna-3.3.tar.gz", hash = "sha256:9d643ff0a55b762d5cdb124b8eaa99c66322e2157b69160bc32796e824360e6d"},
@@ -2870,6 +2948,14 @@ lightgbm = [
     {file = "lightgbm-3.3.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:0b84a9a3cfc39c87f4d2c1a1d090895f7019c6ca05a64a51a917755c70e46f8d"},
     {file = "lightgbm-3.3.1-py3-none-win_amd64.whl", hash = "sha256:65eb6b3d019b17339c1658a80552b19bc053ecbc829cd3ee877808a29fea5bf5"},
     {file = "lightgbm-3.3.1.tar.gz", hash = "sha256:5b9f31759ab4e94d9409deb03104c55b0a40058a6ccea804022046d926bc4904"},
+]
+lightly = [
+    {file = "lightly-1.1.22-py3-none-any.whl", hash = "sha256:a10a30efb0fbdb4b5a8ae3f8b6221cf25ba69cf070d476f039691a5a9e3392ff"},
+    {file = "lightly-1.1.22.tar.gz", hash = "sha256:1fbd32042cf5fb455a99f0439d4236e3c3c890f1f579e17989a2ea82648c6de7"},
+]
+lightly-utils = [
+    {file = "lightly_utils-0.0.2-py3-none-any.whl", hash = "sha256:57eaa99044bbdab428cc67cd336491096cd406c21b50f15ce51150c1a10843e9"},
+    {file = "lightly_utils-0.0.2.tar.gz", hash = "sha256:a351f3d600f0ab08d12f294725c6457ae000645cb0a1083d0845cb196ccfe698"},
 ]
 llvmlite = [
     {file = "llvmlite-0.34.0-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:11342e5ac320c953590bdd9d0dec8c52f4b5252c4c6335ba25f1e7b9f91f9325"},
@@ -3190,6 +3276,10 @@ numpy = [
 oauthlib = [
     {file = "oauthlib-3.1.1-py2.py3-none-any.whl", hash = "sha256:42bf6354c2ed8c6acb54d971fce6f88193d97297e18602a3a886603f9d7730cc"},
     {file = "oauthlib-3.1.1.tar.gz", hash = "sha256:8f0215fcc533dd8dd1bee6f4c412d4f0cd7297307d43ac61666389e3bc3198a3"},
+]
+omegaconf = [
+    {file = "omegaconf-2.1.1-py3-none-any.whl", hash = "sha256:be93d73eaa2564fbe52d88ee13e3b79f4c6e04876b2f326551a21391f7dc6367"},
+    {file = "omegaconf-2.1.1.tar.gz", hash = "sha256:c65e05530369484e074a24038fe31812c73561aa9d916abfd1209e4073136ae5"},
 ]
 opencv-python = [
     {file = "opencv-python-4.5.4.58.tar.gz", hash = "sha256:48288428f407bacba5f73d460feb4a1ecafe87db3d7cfc0730a49fb32f589bbf"},
