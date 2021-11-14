@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.utils.data as data
 import pytorch_lightning as pl
 import wandb
+import timm
 from sklearn.model_selection import StratifiedKFold
 from PIL import Image
 from dotenv import load_dotenv
@@ -270,7 +271,7 @@ class DataModule(pl.LightningDataModule):
 # Network
 # =================================================
 def create_network():
-    network = resnet18(pretrained=True)
+    network = timm.create_model("resnet18d", pretrained=False)
     network.fc = nn.Linear(in_features=512, out_features=1, bias=True)
     return network
 
@@ -450,6 +451,8 @@ def main() -> None:
             )
             artifact.add_file(str(OUTPUT_DIR / f"sub_{fold}.csv"))
             run.log_artifact(artifact)
+            if fold != CFG.folds[-1]:
+                wandb.finish()
 
     # save
     df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)
