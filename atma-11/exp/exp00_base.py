@@ -94,8 +94,8 @@ class CFG:
     num_workers: int = 8
 
     # trainer
-    min_epochs: int = 2
-    max_epochs: int = 2 if debug else 100
+    min_epochs: int = 2 if debug else 50
+    max_epochs: int = 2 if debug else 150
     fast_dev_run: bool = False
     gpus = [0]
 
@@ -360,7 +360,7 @@ def main() -> None:
     # cv
     df_oof = df_meta_train.copy()
     df_sub = df_meta_test.copy()
-    skf = StratifiedKFold(CFG.n_split)
+    skf = StratifiedKFold(CFG.n_split, shuffle=True, random_state=CFG.seed)
     for fold, (idx_train, idx_val) in enumerate(
         skf.split(df_meta_train, df_meta_train["target"])
     ):
