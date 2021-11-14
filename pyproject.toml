@@ -31,6 +31,7 @@ torchinfo = "^1.5.3"
 python-vivid = "^0.3.3"
 wandb = "^0.12.6"
 lightly = "^1.1.22"
+albumentations = "^1.1.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

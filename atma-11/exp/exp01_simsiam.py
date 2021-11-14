@@ -82,7 +82,7 @@ class CFG:
     n_split = 5
     random_state = 42
     shuffle = True
-    folds = [0] if debug else [0, 1, 2, 3, 4]
+    folds = [1]
 
     # dataset
     height = 224
@@ -91,6 +91,8 @@ class CFG:
     # datamodule
     batch_size: int = 8
     num_workers: int = 8
+
+    # callbaks
 
     # trainer
     min_epochs: int = 2
@@ -446,20 +448,13 @@ def main() -> None:
         if CFG.use_wandb:
             run = pl_logger.experiment
             artifact = wandb.Artifact(
-                f"dataset-sub-{fold}-{pl_logger.experiment.id}", type="dataset"
+                f"dataset-{pl_logger.experiment.id}", type="dataset"
             )
             artifact.add_file(str(OUTPUT_DIR / f"sub_{fold}.csv"))
             run.log_artifact(artifact)
 
     # save
     df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)
-    if CFG.use_wandb:
-        run = pl_logger.experiment
-        artifact = wandb.Artifact(
-            f"dataset-oof-{pl_logger.experiment.id}", type="dataset"
-        )
-        artifact.add_file(str(OUTPUT_DIR / f"oof.csv"))
-        run.log_artifact(artifact)
 
 
 if __name__ == "__main__":
