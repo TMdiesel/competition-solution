@@ -4,6 +4,9 @@ import pathlib
 import sys
 import os
 import typing as t
+import smtplib
+from email.mime.text import MIMEText
+from email.utils import formatdate
 
 # third party package
 import numpy as np
@@ -59,6 +62,9 @@ def load_env(label: str):
 WANDB_API = load_env("WANDB_API")
 OUTPUT_DIR = pathlib.Path(load_env("OUTPUT_DIR"))
 INPUT_DIR = pathlib.Path(load_env("INPUT_DIR"))
+FROM_ADDRESS = load_env("FROM_ADDRESS")
+TO_ADDRESS = load_env("TO_ADDRESS")
+PASSWORD = load_env("PASSWORD")
 
 
 # =================================================
@@ -71,7 +77,8 @@ class CFG:
     # experiment
     use_wandb = True
     project = "atma11"
-    exp_name = "exp00.00"
+    exp_name = "exp00.02"
+    use_mail = True
 
     # pytorch
     seed = 46
@@ -131,6 +138,34 @@ def class2dict(f):
     return dict(
         (name, getattr(f, name)) for name in dir(f) if not name.startswith("__")
     )
+
+
+class Sender:
+    def __init__(
+        self,
+        from_address: str,
+        to_address: str,
+        password: str,
+    ):
+        self.from_address = from_address
+        self.to_address = to_address
+        self.password = password
+
+    def create_message(self, subject: str, body: str):
+        self.msg = MIMEText(body)
+        self.msg["Subject"] = subject
+        self.msg["From"] = self.from_address
+        self.msg["To"] = self.to_address
+        self.msg["Date"] = formatdate()
+
+    def send(self):
+        smtpobj = smtplib.SMTP("smtp.gmail.com", 587)
+        smtpobj.ehlo()
+        smtpobj.starttls()
+        smtpobj.ehlo()
+        smtpobj.login(self.from_address, self.password)
+        smtpobj.sendmail(self.from_address, self.to_address, self.msg.as_string())
+        smtpobj.close()
 
 
 # =================================================
@@ -453,6 +488,21 @@ def main() -> None:
             run.log_artifact(artifact)
             if fold != CFG.folds[-1]:
                 wandb.finish()
+        if CFG.use_mail:
+            sender = Sender(
+                from_address=FROM_ADDRESS, to_address=TO_ADDRESS, password=PASSWORD
+            )
+            subject = f"project: {CFG.project} exp_name: {CFG.exp_name} fold: {fold}"
+            body = f"""Best validation score in fold {fold} is {checkpoint.best_model_score:.3f}.
+            \nRun information is as follows:
+            - project: {CFG.project}
+            - exp_name: {CFG.exp_name}
+            - fold: {fold}
+            - run_id: {pl_logger.experiment.id}
+            \nSee https://wandb.ai/home for more details.
+            """
+            sender.create_message(subject=subject, body=body)
+            sender.send()
 
     # save
     df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)

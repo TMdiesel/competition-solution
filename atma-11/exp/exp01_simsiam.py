@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.utils.data as data
 import pytorch_lightning as pl
 import wandb
+import timm
 from sklearn.model_selection import StratifiedKFold
 from PIL import Image
 from dotenv import load_dotenv
@@ -82,7 +83,7 @@ class CFG:
     n_split = 5
     random_state = 42
     shuffle = True
-    folds = [1]
+    folds = [0] if debug else [0, 1, 2, 3, 4]
 
     # dataset
     height = 224
@@ -92,11 +93,9 @@ class CFG:
     batch_size: int = 8
     num_workers: int = 8
 
-    # callbaks
-
     # trainer
-    min_epochs: int = 2
-    max_epochs: int = 2 if debug else 100
+    min_epochs: int = 2 if debug else 50
+    max_epochs: int = 2 if debug else 150
     fast_dev_run: bool = False
     gpus = [0]
 
@@ -272,7 +271,7 @@ class DataModule(pl.LightningDataModule):
 # Network
 # =================================================
 def create_network():
-    network = resnet18(pretrained=True)
+    network = timm.create_model("resnet18d", pretrained=False)
     network.fc = nn.Linear(in_features=512, out_features=1, bias=True)
     return network
 
@@ -361,7 +360,7 @@ def main() -> None:
     # cv
     df_oof = df_meta_train.copy()
     df_sub = df_meta_test.copy()
-    skf = StratifiedKFold(CFG.n_split)
+    skf = StratifiedKFold(CFG.n_split, shuffle=True, random_state=CFG.seed)
     for fold, (idx_train, idx_val) in enumerate(
         skf.split(df_meta_train, df_meta_train["target"])
     ):
@@ -448,13 +447,22 @@ def main() -> None:
         if CFG.use_wandb:
             run = pl_logger.experiment
             artifact = wandb.Artifact(
-                f"dataset-{pl_logger.experiment.id}", type="dataset"
+                f"dataset-sub-{fold}-{pl_logger.experiment.id}", type="dataset"
             )
             artifact.add_file(str(OUTPUT_DIR / f"sub_{fold}.csv"))
             run.log_artifact(artifact)
+            if fold != CFG.folds[-1]:
+                wandb.finish()
 
     # save
     df_oof.to_csv(OUTPUT_DIR / "oof.csv", index=False)
+    if CFG.use_wandb:
+        run = pl_logger.experiment
+        artifact = wandb.Artifact(
+            f"dataset-oof-{pl_logger.experiment.id}", type="dataset"
+        )
+        artifact.add_file(str(OUTPUT_DIR / f"oof.csv"))
+        run.log_artifact(artifact)
 
 
 if __name__ == "__main__":

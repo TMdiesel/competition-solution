@@ -8,11 +8,11 @@
 ### exp00
 
 - 回帰タスク
-- ResNet18
+- ResNet18d
 
 ### exp01
 
 - 回帰タスク
 - SimSiam による自己教師あり学習
-- ResNet18, Efficientnetb0
+- ResNet18d, Efficientnetb0
 - stacking
